@@ -1,0 +1,85 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "🚀 Leo Profi - Cloudflared Monitoring",
+    "tags": ["cloudflared", "tunnel", "leoprofi"],
+    "style": "dark",
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "🌐 Tunnel Status",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "up{job=\"cloudflared\"}",
+            "legendFormat": "Tunnel Status"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": 0},
+                {"color": "green", "value": 1}
+              ]
+            },
+            "unit": "none"
+          }
+        },
+        "options": {
+          "colorMode": "background",
+          "graphMode": "none",
+          "textMode": "auto"
+        },
+        "gridPos": {"h": 8, "w": 6, "x": 0, "y": 0}
+      },
+      {
+        "id": 2,
+        "title": "📊 Request Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(cloudflared_tunnel_request_total[5m])",
+            "legendFormat": "Requests/sec"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 18, "x": 6, "y": 0}
+      },
+      {
+        "id": 3,
+        "title": "🔗 Active Connections",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "cloudflared_tunnel_active_streams",
+            "legendFormat": "Active Streams"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
+      },
+      {
+        "id": 4,
+        "title": "⚡ Response Time",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(cloudflared_tunnel_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "95th percentile"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}
+      }
+    ],
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "refresh": "5s"
+  },
+  "folderId": 0,
+  "overwrite": true
+}

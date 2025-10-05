@@ -1,0 +1,101 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "🐳 Docker Monitoring - Leo Profi",
+    "tags": ["docker", "containers", "leoprofi"],
+    "style": "dark",
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "🔄 Docker Engine Status",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "up{job=\"docker\"}",
+            "legendFormat": "Docker Engine"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": 0},
+                {"color": "green", "value": 1}
+              ]
+            },
+            "unit": "none",
+            "mappings": [
+              {"options": {"0": {"text": "DOWN"}}, "type": "value"},
+              {"options": {"1": {"text": "UP"}}, "type": "value"}
+            ]
+          }
+        },
+        "options": {
+          "colorMode": "background",
+          "graphMode": "none",
+          "textMode": "auto"
+        },
+        "gridPos": {"h": 8, "w": 6, "x": 0, "y": 0}
+      },
+      {
+        "id": 2,
+        "title": "📊 Containers Running",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "engine_daemon_container_states_containers{state=\"running\"}",
+            "legendFormat": "Running Containers"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 6, "x": 6, "y": 0}
+      },
+      {
+        "id": 3,
+        "title": "💾 Docker Images",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "engine_daemon_image_count",
+            "legendFormat": "Total Images"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 6, "x": 12, "y": 0}
+      },
+      {
+        "id": 4,
+        "title": "🌐 Docker Networks",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "engine_daemon_network_count",
+            "legendFormat": "Networks"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 6, "x": 18, "y": 0}
+      },
+      {
+        "id": 5,
+        "title": "📈 Container States Over Time",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "engine_daemon_container_states_containers",
+            "legendFormat": "{{state}}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8}
+      }
+    ],
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "refresh": "10s"
+  },
+  "folderId": 0,
+  "overwrite": true
+}

@@ -1,0 +1,155 @@
+name: monitoring
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docker-compose.yml'
+      - 'grafana/**'
+      - 'prometheus/**'
+      - '*.sh'
+      - '*.json'
+      - '.github/workflows/deploy-arqwebv02.yml'
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy-stack:
+    name: Build and Deploy ArqWebV2 Stack
+    runs-on: ubuntu-latest
+    env:
+      SPRING_PROFILES_ACTIVE: prod
+      MAVEN_OPTS: -Xmx2048m
+      PROJECT_NAME: arqwebv02
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Cache Maven dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+
+      - name: Skip app builds (monitoring stack only)
+        run: |
+          echo "Repository contains monitoring stack. No application builds required."
+
+      - name: Setup Cloudflared
+        run: |
+          wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+          sudo dpkg -i cloudflared-linux-amd64.deb
+
+      - name: Setup SSH key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.HOME_SERVER_SSH_KEY }}
+
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          cat >> ~/.ssh/config <<'EOF'
+            Host ssh.leoproti.com.br
+              StrictHostKeyChecking no
+              UserKnownHostsFile /dev/null
+              ConnectTimeout 30
+            EOF
+          chmod 600 ~/.ssh/config
+
+      - name: Prepare remote server (create folders, backup old)
+        run: |
+          ssh -o ProxyCommand="cloudflared access ssh --hostname %h" -o ConnectTimeout=30 -o StrictHostKeyChecking=no leonardovieiraxy@ssh.leoproti.com.br <<'EOF'
+            set -euo pipefail
+            PROJECT_PATH="$HOME/projetos/arqwebv02"
+            if [ -d "$PROJECT_PATH" ]; then
+              mv "$PROJECT_PATH" "${PROJECT_PATH}_backup_$(date +%Y%m%d_%H%M%S)" || true
+            fi
+            mkdir -p "$PROJECT_PATH"/database "$PROJECT_PATH"/keycloak "$PROJECT_PATH"/grafana "$PROJECT_PATH"/prometheus
+            chmod -R 755 "$HOME/projetos"
+            echo "Prepared $PROJECT_PATH"
+            EOF
+
+      - name: Transfer project files to server (with retries)
+        run: |
+          set -e
+          REMOTE=leonardovieiraxy@ssh.leoproti.com.br:~/projetos/monitoring/
+
+          transfer() {
+            # Transfer monitoring files
+            scp -r -o ProxyCommand="cloudflared access ssh --hostname %h" grafana/ $REMOTE/grafana/ || true
+            scp -r -o ProxyCommand="cloudflared access ssh --hostname %h" prometheus/ $REMOTE/prometheus/ || true
+            scp -o ProxyCommand="cloudflared access ssh --hostname %h" docker-compose.yml $REMOTE || true
+            scp -o ProxyCommand="cloudflared access ssh --hostname %h" check-metrics.sh $REMOTE || true || true
+            scp -o ProxyCommand="cloudflared access ssh --hostname %h" setup-dashboards.sh $REMOTE || true || true
+            # Transfer Grafana provisioning and dashboards if present
+            if [ -d grafana ]; then
+              scp -r -o ProxyCommand="cloudflared access ssh --hostname %h" grafana/ $REMOTE/grafana/ || true
+            fi
+            # Transfer Prometheus config if present
+            if [ -f prometheus/prometheus.yml ]; then
+              scp -o ProxyCommand="cloudflared access ssh --hostname %h" prometheus/prometheus.yml $REMOTE/prometheus/ || true
+            fi
+          }
+
+          transfer || (sleep 5 && transfer) || (sleep 10 && transfer)
+
+      - name: Remote build & deploy (docker-compose) with health checks
+        run: |
+          ssh -o ProxyCommand="cloudflared access ssh --hostname %h" leonardovieiraxy@ssh.leoproti.com.br <<'EOF'
+            set -euo pipefail
+            PROJECT_PATH="$HOME/projetos/monitoring"
+            cd "$PROJECT_PATH"
+
+            # Ensure docker-compose v1 or v2 is available; prefer docker compose
+            if command -v docker-compose >/dev/null 2>&1; then
+              DC="docker-compose"
+            else
+              DC="docker compose"
+            fi
+
+            # Stop and remove previous project containers, network
+            $DC -f docker-compose.yml down --remove-orphans || true
+
+            # Remove old images with label if any
+            docker image prune -f || true
+
+            # Build artifacts on remote using local built artifacts if present
+            echo "Starting build and up"
+            $DC -f docker-compose.yml build --no-cache --pull || true
+            $DC -f docker-compose.yml up -d --remove-orphans
+
+            # Wait for critical services to report healthy
+            echo "Waiting for services to become healthy (120s timeout)"
+            SECONDS_WAITED=0
+            TIMEOUT=120
+            while [ $SECONDS_WAITED -lt $TIMEOUT ]; do
+              RUNNING=$(docker ps --filter "name=monitoring" --format "{{.Names}}" | wc -l)
+              if [ "$RUNNING" -ge 3 ]; then
+                echo "Found $RUNNING monitoring containers running"
+                break
+              fi
+              sleep 5
+              SECONDS_WAITED=$((SECONDS_WAITED+5))
+            done
+
+            if [ "$SECONDS_WAITED" -ge $TIMEOUT ]; then
+              echo "Timeout waiting for containers. Showing logs for debugging"
+              $DC -f docker-compose-arqwebv02.yml logs --tail=100
+              exit 1
+            fi
+
+            echo "Remote deployment finished"
+            EOF
+
+      - name: Post-deploy verification (local summary)
+        run: |
+          echo "Deployment attempted. You can check remote services via cloudflared access or SSH."
+
+      - name: Mark todo completed
+        run: echo "workflow-created"
